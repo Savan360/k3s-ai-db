@@ -1,0 +1,33 @@
+- hosts: k3s_cluster
+  become: yes
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name: [curl, open-iscsi, nfs-common]
+        state: present
+        update_cache: yes
+
+- hosts: node1
+  become: yes
+  tasks:
+    - name: Install K3s Control-Plane
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --node-ip {{ ansible_host }}" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Get Node Token
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token
+
+- hosts: node2,node3
+  become: yes
+  vars:
+    token: "{{ hostvars['node1']['k3s_token']['content'] | b64decode | trim }}"
+  tasks:
+    - name: Join K3s Cluster
+      shell: |
+        curl -sfL https://get.k3s.io | K3S_TOKEN={{ token }} K3S_URL=https://192.168.100.10:6443 INSTALL_K3S_EXEC="server --node-ip {{ ansible_host }}" sh -
+      args:
+        creates: /usr/local/bin/k3s

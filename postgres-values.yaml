@@ -1,0 +1,29 @@
+architecture: replication
+auth:
+  postgresPassword: "StrongPass123"
+  replicationPassword: "ReplPass456"
+
+primary:
+  nodeSelector:
+    kubernetes.io/hostname: node2
+  podAntiAffinityPreset: "hard"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+readReplicas:
+  replicaCount: 1
+  nodeSelector:
+    kubernetes.io/hostname: node3
+  podAntiAffinityPreset: "hard"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"

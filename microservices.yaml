@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-code
+data:
+  main.py: |
+    from fastapi import FastAPI
+    app = FastAPI()
+    @app.get("/health")
+    def health(): return {"status": "ok", "service": "API Gateway"}
+    @app.get("/")
+    def root(): return {"message": "Welcome to API Gateway"}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-code
+data:
+  main.py: |
+    from fastapi import FastAPI
+    app = FastAPI()
+    @app.get("/health")
+    def health(): return {"status": "ok", "service": "Auth Service"}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-service-code
+data:
+  main.py: |
+    from fastapi import FastAPI
+    app = FastAPI()
+    @app.get("/health")
+    def health(): return {"status": "ok", "service": "Worker Service"}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["api-gateway", "auth-service", "worker-service"]
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: api
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c", "pip install fastapi uvicorn && uvicorn main:app --host 0.0.0.0 --port 8000"]
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        workingDir: /app
+      volumes:
+      - name: code
+        configMap:
+          name: api-gateway-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - port: 80
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["api-gateway", "auth-service", "worker-service"]
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: auth
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c", "pip install fastapi uvicorn && uvicorn main:app --host 0.0.0.0 --port 8000"]
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        workingDir: /app
+      volumes:
+      - name: code
+        configMap:
+          name: auth-service-code
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-service
+  template:
+    metadata:
+      labels:
+        app: worker-service
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["api-gateway", "auth-service", "worker-service"]
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: worker
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c", "pip install fastapi uvicorn && uvicorn main:app --host 0.0.0.0 --port 8000"]
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        workingDir: /app
+      volumes:
+      - name: code
+        configMap:
+          name: worker-service-code
