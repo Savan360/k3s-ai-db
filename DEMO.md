@@ -1,20 +1,15 @@
-# K3s AI & Microservices Cluster — Demo Runbook
-
-## 1. K3s Cluster & Traefik
-```bash
-# Check nodes status and resources
-kubectl get nodes -o wide
-kubectl top nodes
-
 # Check Traefik Ingress controller
 kubectl get svc -n kube-system traefik
 kubectl get ingress -A
-```
 
-## 2. Databases (PostgreSQL, Redis, MinIO)
-```bash
-# Check pods placement across nodes
-kubectl get pods -n databases -o wide
+#replica test
+kubectl exec -n databases -it postgres-postgresql-primary-0 -- env PGPASSWORD=$(kubectl get secret -n databases postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d) psql -U postgres -c "CREATE TABLE repl_test (id int); INSERT INTO repl_test VALUES (42);"
+#added 42 value
+kubectl exec -n databases -it postgres-postgresql-read-0 -- env PGPASSWORD=$(kubectl get secret -n databases postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d) psql -U postgres -c "SELECT * FROM repl_test;"
+#delete 42
+kubectl exec -n databases -it postgres-postgresql-primary-0 -- env PGPASSWORD=$(kubectl get secret -n databases postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d) psql -U postgres -c "DROP TABLE repl_test;"
+#password secret decode
+kubectl get secret postgres-postgresql -n databases -o jsonpath="{.data.postgres-password}" | base64 --decode
 
 # Verify PostgreSQL Primary-Replica streaming
 PG_PASS=$(kubectl get secret postgres-postgresql -n databases -o jsonpath='{.data.postgres-password}' | base64 -d)
@@ -28,46 +23,28 @@ kubectl exec -n databases redis-master-0 -- env REDISCLI_AUTH="$REDIS_PASS" redi
 # Verify MinIO S3 health
 MINIO_IP=$(kubectl get svc minio -n databases -o jsonpath='{.spec.clusterIP}')
 curl -I "http://${MINIO_IP}:9000/minio/health/live"
-```
-
-## 3. Microservices & PodAntiAffinity
-```bash
-# Check pods isolation across worker nodes
-kubectl get pods -n default -o wide
 
 # Check PodAntiAffinity rules
 kubectl describe deployment auth-service | grep -A 8 "Pod Anti-Affinity"
 
 # Test API Gateway via Ingress
 curl -i -H "Host: api.homelab.local" http://192.168.100
-```
 
-## 4. AI / LLM (Ollama) & Vector DB (Qdrant)
-```bash
 # Check loaded Ollama models and test inference
 OLLAMA_IP=$(kubectl get svc ollama -n default -o jsonpath='{.spec.clusterIP}')
 curl -s "http://${OLLAMA_IP}:11434/api/tags" | jq
-
-MODEL_NAME=(curl -s "http://{OLLAMA_IP}:11434/api/tags" | jq -r '.models[0].name')
-curl -s "http://\({OLLAMA_IP}:11434/api/generate" -d "{\"model\": \"\){MODEL_NAME}\", \"prompt\": \"Say hello in 3 words\", \"stream\": false}" | jq -r '.response'
 
 # Check Qdrant health and collections
 QDRANT_IP=$(kubectl get pod qdrant-0 -n default -o jsonpath='{.status.podIP}')
 curl -s "http://${QDRANT_IP}:6333/healthz" ; echo
 curl -s "http://${QDRANT_IP}:6333/collections" | jq
-```
 
-## 5. Backup & Restore (Restic -> MinIO)
-```bash
 # Check secrets and script permissions (700)
 kubectl get secret restic-backup-secret -n databases
 ls -la ~/k3s-ai-db/*.sh
 
-# Run full encrypted backup
-~/k3s-ai-db/backup_all.sh
-
-# Run full restore (PostgreSQL, Redis, Qdrant)
-~/k3s-ai-db/restore_all.sh
+#password in contaner
+kubectl exec -it postgres-postgresql-primary-0 -n databases -- cat /opt/bitnami/postgresql/secrets/postgres-password
 
 # Verify restored PostgreSQL database
 PG_PASS=$(kubectl get secret postgres-postgresql -n databases -o jsonpath='{.data.postgres-password}' | base64 -d)
@@ -81,21 +58,10 @@ kubectl exec -n databases redis-master-0 -- env REDISCLI_AUTH="$REDIS_PASS" redi
 # Verify restored Qdrant collections
 QDRANT_IP=$(kubectl get pod qdrant-0 -n default -o jsonpath='{.status.podIP}')
 curl -s "http://${QDRANT_IP}:6333/collections" | jq '.result.collections'
-```
+kubectl run -it --rm test-ollama --image=curlimages/curl --restart=Never -- curl -s -X POST http://ollama:11434/api/generate -d '{"model":"qwen2.5:1.5b","prompt":"Say hello","stream":false}'
 
-## 6. Ansible & Docs
-```bash
-# Check repository structure and permissions
-ls -la ~/k3s-ai-db/ ~/k3s-ai-db/ansible/
-head -n 25 ~/k3s-ai-db/README.md ~/k3s-ai-db/DRP.md
-```
-
-## 7. Observability (Prometheus, Grafana, Loki)
-```bash
 # Check monitoring stack pods and Ingress
 kubectl get pods -n monitoring -o wide
 kubectl get ingress -n monitoring
 #  Ingress
 kubectl get ingress -A```
-
-* **Grafana:** `http://homelab.local` (Metrics: *Dashboards -> Compute Resources / Node*, Logs: *Explore -> Loki -> `{namespace="default"}`*)
